@@ -1,0 +1,16 @@
+# Build context is the repository root. Keep it small and secret-free.
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.log
+**/.env
+**/.env.*
+!.env.example
+.git
+.github
+infra
+docs
+backend/tests
+**/*.test.ts
+**/.DS_Store

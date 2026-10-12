@@ -1,0 +1,57 @@
+{
+  "family": "memed-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "runtimePlatform": { "operatingSystemFamily": "LINUX", "cpuArchitecture": "X86_64" },
+  "executionRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/memed-ecs-execution",
+  "taskRoleArn": "arn:aws:iam::${AWS_ACCOUNT_ID}:role/memed-backend-task",
+  "containerDefinitions": [
+    {
+      "name": "backend",
+      "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/memed-backend:latest",
+      "essential": true,
+      "portMappings": [{ "containerPort": 4000, "protocol": "tcp", "name": "api" }],
+      "stopTimeout": 30,
+      "readonlyRootFilesystem": true,
+      "linuxParameters": { "initProcessEnabled": true },
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "4000" },
+        { "name": "LOG_LEVEL", "value": "info" },
+        { "name": "TRUST_PROXY", "value": "1" },
+        { "name": "COOKIE_SECURE", "value": "true" },
+        { "name": "COOKIE_SAMESITE", "value": "lax" },
+        { "name": "CORS_ORIGINS", "value": "${APP_ORIGIN}" },
+        { "name": "MONGODB_DB_NAME", "value": "memed" },
+        { "name": "MONGODB_MAX_POOL_SIZE", "value": "20" },
+        { "name": "DB_AUTO_INDEX", "value": "false" },
+        { "name": "VIEW_UPDATE_MODE", "value": "internal" },
+        { "name": "RECONCILIATION_INTERVAL_SECONDS", "value": "300" },
+        { "name": "SHUTDOWN_GRACE_MS", "value": "25000" }
+      ],
+      "secrets": [
+        { "name": "MONGODB_URI", "valueFrom": "${APP_SECRET_ARN}:MONGODB_URI::" },
+        { "name": "JWT_ACCESS_SECRET", "valueFrom": "${APP_SECRET_ARN}:JWT_ACCESS_SECRET::" },
+        { "name": "VIEW_UPDATE_SERVICE_KEY", "valueFrom": "${APP_SECRET_ARN}:VIEW_UPDATE_SERVICE_KEY::" },
+        { "name": "REDIS_URL", "valueFrom": "${APP_SECRET_ARN}:REDIS_URL::" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/memed-backend",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "api"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      }
+    }
+  ]
+}

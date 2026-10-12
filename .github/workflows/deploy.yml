@@ -1,0 +1,114 @@
+name: Deploy to AWS (ECS Fargate)
+
+# Runs only when explicitly enabled for the repository (Settings → Variables:
+# AWS_DEPLOY_ENABLED=true) so forks and fresh clones never try to deploy.
+#
+# Required repository variables:
+#   AWS_REGION, AWS_ACCOUNT_ID, AWS_DEPLOY_ROLE_ARN (OIDC role), APP_ORIGIN (https://your.domain),
+#   APP_SECRET_ARN (full ARN of the memed/production secret), PRIVATE_SUBNET_IDS (subnet-a,subnet-b)
+# No long-lived AWS keys are stored: GitHub OIDC assumes AWS_DEPLOY_ROLE_ARN.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: vars.AWS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+      APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+      APP_SECRET_ARN: ${{ vars.APP_SECRET_ARN }}
+      CLUSTER: memed
+      TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ steps.ecr.outputs.registry }}/memed-backend:${{ env.TAG }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=/api
+            NEXT_PUBLIC_SITE_URL=${{ vars.APP_ORIGIN }}
+          tags: ${{ steps.ecr.outputs.registry }}/memed-frontend:${{ env.TAG }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Render task definitions
+        run: |
+          infra/aws/scripts/render-task-def.sh infra/aws/ecs/backend-task-def.json "${{ steps.ecr.outputs.registry }}/memed-backend:$TAG" > backend-td.json
+          infra/aws/scripts/render-task-def.sh infra/aws/ecs/frontend-task-def.json "${{ steps.ecr.outputs.registry }}/memed-frontend:$TAG" > frontend-td.json
+
+      - name: Register backend task definition
+        id: backend-td
+        run: |
+          arn=$(aws ecs register-task-definition --cli-input-json file://backend-td.json --query taskDefinition.taskDefinitionArn --output text)
+          echo "arn=$arn" >> "$GITHUB_OUTPUT"
+
+      # Non-destructive index creation before new code serves traffic.
+      - name: Initialise database indexes
+        run: |
+          sg=$(aws ecs describe-services --cluster "$CLUSTER" --services memed-backend --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups' --output text | tr '\t' ',')
+          task=$(aws ecs run-task --cluster "$CLUSTER" --launch-type FARGATE --task-definition "${{ steps.backend-td.outputs.arn }}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${{ vars.PRIVATE_SUBNET_IDS }}],securityGroups=[$sg],assignPublicIp=DISABLED}" \
+            --overrides '{"containerOverrides":[{"name":"backend","command":["node","dist/scripts/init-db.js"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+          aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$task"
+          code=$(aws ecs describe-tasks --cluster "$CLUSTER" --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text)
+          test "$code" = "0" || { echo "db:init failed with exit code $code"; exit 1; }
+
+      - name: Deploy backend
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: backend-td.json
+          service: memed-backend
+          cluster: ${{ env.CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Deploy frontend
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: frontend-td.json
+          service: memed-frontend
+          cluster: ${{ env.CLUSTER }}
+          wait-for-service-stability: true
+
+      - name: Smoke test
+        run: |
+          curl -fsS "${APP_ORIGIN}/api/health/ready"
+          curl -fsS -o /dev/null "${APP_ORIGIN}/"

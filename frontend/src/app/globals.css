@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Meme'd design tokens
+ *  ink       #17123A  text, sidebar
+ *  paper     #F6F5FB  app background (cool, lavender-tinted)
+ *  indigo    #3A2FD3  actions, links, focus
+ *  marigold  #FFB21E  money earned & milestone tags — used for nothing else
+ *  line      #E3E0F0  borders
+ * Typeface: Archivo (variable width). Condensed + heavy for display, regular width for UI text.
+ */
+
+@theme {
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink: #17123a;
+  --color-ink-soft: #2a2456;
+  --color-paper: #f6f5fb;
+  --color-surface: #ffffff;
+  --color-line: #e3e0f0;
+  --color-line-strong: #cbc6e2;
+  --color-muted: #5e5a78;
+  --color-faint: #6e6a88;
+
+  --color-indigo: #3a2fd3;
+  --color-indigo-hover: #2f25b5;
+  --color-indigo-tint: #ecebfd;
+
+  --color-marigold: #ffb21e;
+  --color-marigold-deep: #8a5300;
+  --color-marigold-tint: #fff3d6;
+
+  --color-success: #0b7a50;
+  --color-success-tint: #e2f5ec;
+  --color-danger: #c62f3b;
+  --color-danger-tint: #fde8ea;
+  --color-warn-tint: #fff3d6;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-pop: 0 12px 32px -12px rgb(23 18 58 / 0.28), 0 2px 6px rgb(23 18 58 / 0.08);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.55;
+    font-feature-settings: "kern" 1;
+  }
+  ::selection {
+    background: var(--color-marigold);
+    color: var(--color-ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-indigo);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@utility font-display {
+  font-stretch: 68%;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 0.98;
+}
+
+@utility font-display-wide {
+  font-stretch: 85%;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  line-height: 1.1;
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Diagonal "sticker" stripe used on milestone price tags and campaign covers. */
+@utility stripes {
+  background-image: repeating-linear-gradient(135deg, rgb(255 255 255 / 0.18) 0 6px, transparent 6px 14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
